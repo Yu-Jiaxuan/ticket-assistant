@@ -1,0 +1,15 @@
+const {test}=require('node:test');const assert=require('node:assert/strict');const Engine=require('../extension/engine.js');
+const cfg={choices:['a','b'],quantity:1,maxTotal:68000,opensAt:100,endsAt:1000};
+const snapshot=(over={})=>({schemaOK:true,offers:[{id:'a',status:'available',quantity:1,total:68000},{id:'b',status:'available',quantity:1,total:48000}],...over});
+test('prefers first available and uses fallback only for explicit soldout',()=>{let e=new Engine(cfg);assert.equal(e.decide(snapshot(),200).id,'a');let s=snapshot();s.offers[0].status='soldout';assert.equal(e.decide(s,200).id,'b');s.offers[0].status='unknown';assert.equal(e.decide(s,200).kind,'PAUSE');});
+test('opening and deadline respected',()=>{let e=new Engine(cfg);assert.equal(e.decide(snapshot(),99).kind,'WAIT');assert.equal(e.decide(snapshot(),1001).kind,'STOP');});
+test('captcha, login, queue, schema and existing orders block action',()=>{for(const v of [{blocker:'captcha'},{blocker:'login'},{blocker:'queue'},{schemaOK:false},{existingOrder:true}])assert.equal(new Engine(cfg).decide(snapshot(v),200).kind,'PAUSE');});
+test('price and quantity guard includes total, invalid and negative values',()=>{for(const v of [{total:68001},{quantity:2},{total:NaN},{total:-1},{total:1.2}]){const s=snapshot();Object.assign(s.offers[0],v);assert.equal(new Engine(cfg).decide(s,200).kind,'PAUSE');}});
+test('intent written before outcome prevents double submit and survives restart',()=>{const e=new Engine(cfg),a=e.decide(snapshot(),200),j=e.begin(a);assert.throws(()=>e.begin(a));assert.equal(new Engine(cfg,j).decide(snapshot(),200).kind,'STOP');});
+test('ambiguous failure must not switch fallback',()=>{for(const r of [{kind:'unknown'},{kind:'verification'},{kind:'soldout'},{kind:'success',orderConfirmed:true,id:'wrong',quantity:1,total:68000}]){let e=new Engine(cfg);e.begin(e.decide(snapshot(),200));assert.equal(e.complete(r).phase,'UNKNOWN');assert.equal(e.decide(snapshot(),200).kind,'STOP');}});
+test('only definitive no-order soldout permits retry',()=>{let e=new Engine(cfg);e.begin(e.decide(snapshot(),200));assert.equal(e.complete({kind:'soldout',definitiveNoOrder:true}).phase,'IDLE');let s=snapshot();s.offers[0].status='soldout';assert.equal(e.decide(s,200).id,'b');});
+test('confirmed matching order ends attempts',()=>{let e=new Engine(cfg);e.begin(e.decide(snapshot(),200));assert.equal(e.complete({kind:'success',orderConfirmed:true,id:'a',quantity:1,total:68000}).phase,'SUCCESS');assert.equal(e.decide(snapshot(),200).kind,'STOP');});
+test('stop disallows further submit',()=>{let e=new Engine(cfg);const a=e.decide(snapshot(),200);e.stop();assert.equal(e.decide(snapshot(),200).kind,'STOP');assert.throws(()=>e.begin(a));});
+test('rejects invalid settings',()=>{for(const v of [{choices:[]},{choices:['a','a']},{quantity:0},{quantity:1.5},{maxTotal:-1},{endsAt:99}])assert.throws(()=>new Engine({...cfg,...v}));});
+
+test('paid journal also blocks new attempts',()=>{assert.equal(new Engine(cfg,{phase:'PAID'}).decide(snapshot(),200).kind,'STOP');});

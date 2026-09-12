@@ -1,0 +1,10 @@
+node_modules/
+*.log
+.env*
+profile/
+cookies*
+*.har
+*.zip
+__pycache__/
+test-results/
+playwright-report/
