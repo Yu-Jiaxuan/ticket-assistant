@@ -1,13 +1,38 @@
 {
   "manifest_version": 3,
-  "name": "票务助手 · 流程验证版",
-  "version": "0.1.0",
-  "description": "本地优先级购票流程验证与大麦页面变化提醒。真实大麦自动下单尚未适配。",
+  "name": "票务助手 · 购票计划",
+  "version": "0.2.0",
+  "description": "采集已加载的官方演出页面，设置备选与开售提醒；真实自动下单尚未适配。",
   "permissions": [
     "activeTab",
-    "scripting"
+    "scripting",
+    "storage",
+    "alarms",
+    "notifications"
   ],
   "action": {
     "default_popup": "popup.html"
-  }
+  },
+  "host_permissions": [
+    "https://search.damai.cn/*",
+    "https://detail.damai.cn/*",
+    "https://m.damai.cn/damai/detail/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://search.damai.cn/search.htm*",
+        "https://detail.damai.cn/item.htm*",
+        "https://m.damai.cn/damai/detail/item.html*"
+      ],
+      "js": [
+        "catalog.js",
+        "collector.js"
+      ],
+      "run_at": "document_idle"
+    }
+  ]
 }

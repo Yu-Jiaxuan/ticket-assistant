@@ -13,3 +13,5 @@ async function run(stop=false){
 }
 document.querySelector('#start').onclick=()=>run();
 document.querySelector('#stop').onclick=()=>run(true);
+
+document.querySelector('#dashboard').onclick=()=>chrome.tabs.create({url:chrome.runtime.getURL('ui/dashboard.html')});

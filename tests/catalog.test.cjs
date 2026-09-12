@@ -1,0 +1,13 @@
+const {test}=require('node:test'),assert=require('node:assert/strict'),C=require('../extension/catalog.js');
+const url='https://detail.damai.cn/item.htm?id=123456789';
+test('canonicalizes item links and strips tracking parameters',()=>{assert.deepEqual(C.itemURL(url+'&spm=anything'),{id:'123456789',url});});
+test('rejects phishing hosts, credentials-bearing schemes and non-item paths',()=>{for(const s of ['https://detail.damai.cn.evil.test/item.htm?id=123456789','javascript:alert(1)','http://detail.damai.cn/item.htm?id=123456789','https://orders.damai.cn/item.htm?id=123456789','https://detail.damai.cn/not-item?id=123456789'])assert.equal(C.itemURL(s),null);});
+test('Chinese timestamps always parsed in UTC+8, regardless of machine timezone',()=>{assert.equal(C.parseChinaTime('2026-09-20T12:30'),Date.parse('2026-09-20T04:30:00Z'));});
+test('rejects impossible and ambiguous dates',()=>{for(const s of ['2026-02-30 12:00','2026-13-20 12:00','2026-09-20 25:00','09月20日 12:00','明天12:00','2026-09-20'])assert.equal(C.parseChinaTime(s),null);});
+test('performance date is not sale time',()=>{assert.equal(C.saleTime('演出时间：2026-09-20 12:00'),null);assert.equal(C.saleTime('开售：2026-09-20 12:00'),Date.parse('2026-09-20T04:00:00Z'));assert.equal(C.saleTime('2026年9月20日 12:00 开票'),Date.parse('2026-09-20T04:00:00Z'));});
+test('catalog deduplicates item ids and caps size',()=>{const rows=Array.from({length:210},(_,i)=>({url:'https://detail.damai.cn/item.htm?id='+(100000+i),title:'演出'}));const a=C.merge([],rows,1);assert.equal(a.length,200);assert.equal(C.merge(a,[rows[209]],2).length,200);});
+test('status distinguishes unknown, future, elapsed and stale',()=>{assert.equal(C.status({opensAt:200,capturedAt:100},150),'upcoming');assert.equal(C.status({opensAt:100,capturedAt:100},150),'elapsed');assert.equal(C.status({capturedAt:100,upcomingLabel:true},150),'time-unknown');assert.equal(C.status({capturedAt:100},150),'unknown');assert.equal(C.status({capturedAt:0,opensAt:1e12},1e9),'stale');});
+const raw={url,title:'测试',opensAt:'2026-09-20T12:00',quantity:'1',maxTotal:'680.01',choices:[{session:'周六19:30',tier:'680元'}]};
+test('plan stores exact cents and explicit reminder mode',()=>{const p=C.plan(raw,0);assert.equal(p.maxTotal,68001);assert.equal(p.mode,'reminder');assert.equal(p.opensAt,Date.parse('2026-09-20T04:00:00Z'));});
+test('rejects invalid plan instead of silently changing choices',()=>{for(const v of [{maxTotal:'1.001'},{maxTotal:'NaN'},{quantity:0},{quantity:1.5},{choices:[]},{choices:[raw.choices[0],raw.choices[0]]},{url:'https://evil.test'},{opensAt:'tomorrow'}])assert.throws(()=>C.plan({...raw,...v},0));});
+test('elapsed opening time cannot schedule new reminder',()=>{assert.throws(()=>C.plan(raw,Date.parse('2027-01-01')));});
