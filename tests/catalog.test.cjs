@@ -11,3 +11,9 @@ const raw={url,title:'测试',opensAt:'2026-09-20T12:00',quantity:'1',maxTotal:'
 test('plan stores exact cents and explicit reminder mode',()=>{const p=C.plan(raw,0);assert.equal(p.maxTotal,68001);assert.equal(p.mode,'reminder');assert.equal(p.opensAt,Date.parse('2026-09-20T04:00:00Z'));});
 test('rejects invalid plan instead of silently changing choices',()=>{for(const v of [{maxTotal:'1.001'},{maxTotal:'NaN'},{quantity:0},{quantity:1.5},{choices:[]},{choices:[raw.choices[0],raw.choices[0]]},{url:'https://evil.test'},{opensAt:'tomorrow'}])assert.throws(()=>C.plan({...raw,...v},0));});
 test('elapsed opening time cannot schedule new reminder',()=>{assert.throws(()=>C.plan(raw,Date.parse('2027-01-01')));});
+
+test('mobile links preserve official entry path',()=>{const mobile='https://m.damai.cn/damai/detail/item.html?id=123456789';assert.equal(C.itemURL(mobile+'&spm=foo').url,mobile);});
+test('ambiguous ids and embedded credentials are rejected',()=>{for(const u of [url+'&id=999999',url.replace('https://','https://name:pass@'),url.replace('.cn/','.cn:444/')])assert.equal(C.itemURL(u),null);});
+test('multiple opening rounds require manual selection',()=>{assert.equal(C.saleTime('开售：2026-09-20 12:00\n开售：2026-09-21 12:00'),null);assert.equal(C.saleTime('开售：2026-09-20 12:00\n开售：2026-09-20 12:00'),C.parseChinaTime('2026-09-20 12:00'));});
+test('long sale text is not truncated into a misleading valid date',()=>{assert.equal(C.normalize({url,saleText:'开售：2026-09-20 12:00'+' '.repeat(120)+'开售：2026-09-21 12:00'}).opensAt,null);});
+test('switching event clears prior choice draft, refreshing same event does not',()=>{assert.equal(C.selectionChanged('123','456'),true);assert.equal(C.selectionChanged('123','123'),false);assert.equal(C.selectionChanged('123',null),true);assert.equal(C.selectionChanged(null,'123'),false);});

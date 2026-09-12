@@ -8,12 +8,18 @@
       if (!Number.isSafeInteger(config.maxTotal) || config.maxTotal <= 0) throw Error('最高总价必须为正整数分');
       if (new Set(config.choices).size !== config.choices.length) throw Error('备选不能重复');
       if (!Number.isFinite(config.opensAt) || !Number.isFinite(config.endsAt) || config.endsAt <= config.opensAt) throw Error('时间范围无效');
-      this.config=config; this.journal={...journal}; this.stopped=false;
+      if (!journal || typeof journal!=='object' || !['IDLE','SUBMITTING','UNKNOWN','SUCCESS','PAID'].includes(journal.phase)) throw Error('提交记录损坏，请先核对订单');
+      if(config.choices.some(id=>typeof id!=='string'||!id.trim()))throw Error('备选标识无效');
+      this.config=Object.freeze({...config,choices:Object.freeze([...config.choices])}); this.journal={...journal}; this.stopped=false; this.proposal=null;
     }
     decide(s, now=Date.now()) {
+      this.proposal=null;
+      if(!Number.isFinite(now))return {kind:'PAUSE',reason:'系统时间无效'};
       if(this.stopped) return {kind:'STOP', reason:'已停止'};
       if(['SUBMITTING','UNKNOWN','SUCCESS','PAID'].includes(this.journal.phase)) return {kind:'STOP',reason:'存在提交记录，请核对订单'};
       if(now>this.config.endsAt) return {kind:'STOP',reason:'已到结束时间'};
+      if(!s || !Array.isArray(s.offers))return {kind:'PAUSE',reason:'页面快照无效'};
+      if(s.offers.some(o=>!o||typeof o.id!=='string') || new Set(s.offers.map(o=>o.id)).size!==s.offers.length)return {kind:'PAUSE',reason:'票档身份不唯一或无效'};
       if(s.blocker) return {kind:'PAUSE',reason:s.blocker};
       if(s.existingOrder) return {kind:'PAUSE',reason:'存在未付款订单'};
       if(!s.schemaOK) return {kind:'PAUSE',reason:'页面结构不匹配'};
@@ -26,20 +32,22 @@
         if(offer.status!=='available') return {kind:'PAUSE',reason:'无法识别票档状态'};
         if(!Number.isSafeInteger(offer.total) || offer.total<=0 || offer.quantity!==this.config.quantity || offer.total>this.config.maxTotal)
           return {kind:'PAUSE',reason:'价格或张数不符合配置'};
-        return {kind:'SUBMIT',id,quantity:offer.quantity,total:offer.total};
+        this.proposal=Object.freeze({kind:'SUBMIT',id,quantity:offer.quantity,total:offer.total});
+        return {...this.proposal};
       }
       return {kind:'WAIT',reason:'所有配置票档均无票'};
     }
     begin(action) {
-      if(this.stopped || action.kind!=='SUBMIT' || ['SUBMITTING','UNKNOWN','SUCCESS','PAID'].includes(this.journal.phase)) throw Error('不能重复提交');
+      if(this.stopped || !action || !this.proposal || ['kind','id','quantity','total'].some(k=>action[k]!==this.proposal[k]) || ['SUBMITTING','UNKNOWN','SUCCESS','PAID'].includes(this.journal.phase)) throw Error('不能重复提交');
+      this.proposal=null;
       this.journal={phase:'SUBMITTING',id:action.id,quantity:action.quantity,total:action.total};
       return {...this.journal};
     }
     complete(result) {
       if(this.journal.phase!=='SUBMITTING') throw Error('没有进行中的提交');
-      if(result.kind==='success' && result.id===this.journal.id && result.quantity===this.journal.quantity && result.total===this.journal.total && result.orderConfirmed===true)
+      if(result?.kind==='success' && result.id===this.journal.id && result.quantity===this.journal.quantity && result.total===this.journal.total && result.orderConfirmed===true)
         this.journal={...this.journal,phase:'SUCCESS'};
-      else if(result.kind==='soldout' && result.definitiveNoOrder===true)
+      else if(result?.kind==='soldout' && result.definitiveNoOrder===true)
         this.journal={phase:'IDLE'};
       else this.journal={...this.journal,phase:'UNKNOWN'};
       return {...this.journal};

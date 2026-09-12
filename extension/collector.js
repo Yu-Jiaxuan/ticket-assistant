@@ -20,17 +20,18 @@
    for(const a of document.querySelectorAll('a[href]')){
     if(!visible(a)||!TicketCatalog.itemURL(a.href))continue;
     const title=(a.innerText||a.getAttribute('title')||a.querySelector('img')?.alt||'').trim();if(!title)continue;
-    const nearby=publicCard(a),line=nearby.split('\n').find(t=>/(开售|开票)/.test(t))||'';
-    records.push({url:a.href,title,saleText:line.slice(0,120),upcomingLabel:/即将开售|尚未开售|未开售|即将开票/.test(nearby)});
+    const nearby=publicCard(a),line=nearby.split('\n').filter(t=>/(开售|开票)/.test(t)).join('\n');
+    records.push({url:a.href,title,saleText:line.length<=120?line:'',upcomingLabel:/即将开售|尚未开售|未开售|即将开票/.test(nearby)});
     if(records.length>=100)break;
    }
    // Detail page: title + short sale-status nodes, never body text.
    if(TicketCatalog.itemURL(location.href)){
-     const heading=document.querySelector('h1');let saleText='',upcomingLabel=false;
+     const heading=document.querySelector('h1');let saleText='',upcomingLabel=false;const saleLines=new Set();
      for(const el of document.querySelectorAll('span,p,time')){
        if(!visible(el)||el.children.length)continue;const t=(el.innerText||'').trim();
-       if(t.length<=120&&/开售|开票/.test(t)){if(TicketCatalog.saleTime(t))saleText=t;upcomingLabel ||= /即将开售|未开售|即将开票/.test(t);}
+       if(t.length<=120&&/开售|开票/.test(t)){saleLines.add(t);upcomingLabel ||= /即将开售|未开售|即将开票/.test(t);}
      }
+     saleText=[...saleLines].join('\n');if(saleText.length>120)saleText='';
      if(heading?.innerText)records.unshift({url:location.href,title:heading.innerText,saleText,upcomingLabel});
    }
    const signature=JSON.stringify(records);if(signature===last)return;last=signature;

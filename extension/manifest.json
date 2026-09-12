@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "票务助手 · 购票计划",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "采集已加载的官方演出页面，设置备选与开售提醒；真实自动下单尚未适配。",
   "permissions": [
     "activeTab",

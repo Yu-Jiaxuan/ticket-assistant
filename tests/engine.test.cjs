@@ -13,3 +13,9 @@ test('stop disallows further submit',()=>{let e=new Engine(cfg);const a=e.decide
 test('rejects invalid settings',()=>{for(const v of [{choices:[]},{choices:['a','a']},{quantity:0},{quantity:1.5},{maxTotal:-1},{endsAt:99}])assert.throws(()=>new Engine({...cfg,...v}));});
 
 test('paid journal also blocks new attempts',()=>{assert.equal(new Engine(cfg,{phase:'PAID'}).decide(snapshot(),200).kind,'STOP');});
+
+test('corrupt journals never reset into a fresh attempt',()=>{for(const journal of [null,{},'IDLE',{phase:'BROKEN'}])assert.throws(()=>new Engine(cfg,journal));});
+test('modified proposals and stale proposals cannot begin',()=>{const e=new Engine(cfg),a=e.decide(snapshot(),200);assert.throws(()=>e.begin({...a,total:1}));e.decide(snapshot({blocker:'captcha'}),201);assert.throws(()=>e.begin(a));});
+test('caller mutation cannot silently alter budget or priorities',()=>{const c={...cfg,choices:[...cfg.choices]},e=new Engine(c);c.maxTotal=1;c.choices[0]='b';assert.equal(e.decide(snapshot(),200).id,'a');});
+test('invalid snapshots and duplicate offer identities pause',()=>{for(const s of [null,{offers:null},snapshot({offers:[null]}),snapshot({offers:[{id:'a'},{id:'a'}]})])assert.equal(new Engine(cfg).decide(s,200).kind,'PAUSE');});
+test('missing submission outcome remains unknown',()=>{const e=new Engine(cfg);e.begin(e.decide(snapshot(),200));assert.equal(e.complete(null).phase,'UNKNOWN');});
