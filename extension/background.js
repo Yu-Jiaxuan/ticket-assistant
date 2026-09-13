@@ -1,4 +1,13 @@
-importScripts('catalog.js');
+importScripts('catalog.js', 'engine.js', 'purchase.js', 'adapters.js');
+const purchase = new TicketPurchase.Coordinator({
+  read: async () => (await chrome.storage.local.get('purchaseLedger')).purchaseLedger,
+  write: async value => chrome.storage.local.set({purchaseLedger:value}),
+  adapters: TicketPurchaseAdapters
+});
+let purchaseError = null;
+const purchaseReady = chrome.storage.local.setAccessLevel({accessLevel:'TRUSTED_CONTEXTS'})
+  .then(() => purchase.recover())
+  .catch(() => {purchaseError = '购买记录或存储初始化失败，自动购买已禁用';});
 let writes = Promise.resolve();
 function serial(fn) {
   const pending = writes.then(fn);
@@ -56,6 +65,21 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
     return true;
   }
   if (sender.url !== chrome.runtime.getURL('ui/dashboard.html')) return;
+  if (message.type.startsWith('PURCHASE_')) {
+    (async () => {
+      await purchaseReady;
+      if (purchaseError) throw Error(purchaseError);
+      if (message.type === 'PURCHASE_STATUS') return {ok:true,
+        adapters:TicketPurchaseAdapters.map(a => ({id:a.id,name:a.name})), run:await purchase.status()};
+      if (message.type === 'PURCHASE_START') return {ok:true,run:await purchase.start(message.plan,message.tabId,message.adapterId)};
+      if (message.type === 'PURCHASE_TICK') return {ok:true,run:await purchase.tick(message.runId)};
+      if (message.type === 'PURCHASE_STOP') return {ok:true,run:await purchase.stop(message.runId)};
+      if (message.type === 'PURCHASE_RESUME') return {ok:true,run:await purchase.resume(message.runId)};
+      if (message.type === 'PURCHASE_RECONCILE') return {ok:true,run:await purchase.reconcile(message.runId)};
+      throw Error('未知购买操作');
+    })().then(respond, () => respond({ok:false,error:purchaseError || '购买操作未完成；请检查渠道支持和购买记录，不能直接重试提交'}));
+    return true;
+  }
   serial(async () => {
     if (message.type === 'DIAGNOSTICS') return { ok: true, report: await diagnostics() };
     if (message.type === 'SCAN') {

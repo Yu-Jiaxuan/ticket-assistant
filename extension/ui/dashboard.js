@@ -70,3 +70,23 @@ $('#diagnostics').onclick=guard(async()=>{
  tell('报告只包含版本、数量和运行状态，不含演出名称、链接、预算、账号或观演人信息。');
 });
 setInterval(renderEvents,30000);
+
+let purchaseRun=null;
+async function refreshPurchase(){
+ const r=await send({type:'PURCHASE_STATUS'});purchaseRun=r.run;
+ $('#purchase-capability').textContent=r.adapters.length?'已安装渠道：'+r.adapters.map(a=>a.name).join('、'):'当前已验证的真实下单渠道：0。执行层已安装，大麦真实选票、下单和查单适配尚未接通。';
+ const names={WAITING:'等待检查',PREPARING:'准备结算',SUBMITTING:'提交中',PAUSED:'已暂停',UNKNOWN:'结果不明，须查单',SUCCESS:'已确认待付款',PAID:'已付款',CLOSED:'订单已关闭',STOPPED:'已停止'};
+ $('#purchase-state').textContent=purchaseRun?(names[purchaseRun.state]+'：'+purchaseRun.reason):'当前没有真实购买任务';
+ $('#purchase-resume').disabled=!purchaseRun||purchaseRun.state!=='PAUSED';
+ $('#purchase-stop').disabled=!purchaseRun||['SUCCESS','PAID','CLOSED','STOPPED'].includes(purchaseRun.state);
+ $('#purchase-reconcile').disabled=!purchaseRun||!['SUBMITTING','UNKNOWN','SUCCESS'].includes(purchaseRun.state);
+}
+$('#purchase-check').onclick=guard(refreshPurchase);
+$('#purchase-stop').onclick=guard(async()=>{await send({type:'PURCHASE_STOP',runId:purchaseRun.runId});await refreshPurchase();});
+$('#purchase-reconcile').onclick=guard(async()=>{await send({type:'PURCHASE_RECONCILE',runId:purchaseRun.runId});await refreshPurchase();});
+if(inExtension){
+ refreshPurchase().catch(e=>{$('#purchase-capability').textContent=e.message;});
+ chrome.storage.onChanged.addListener(changes=>{if(changes.purchaseLedger)refreshPurchase().catch(e=>tell(e.message));});
+}
+
+$('#purchase-resume').onclick=guard(async()=>{await send({type:'PURCHASE_RESUME',runId:purchaseRun.runId});await send({type:'PURCHASE_TICK',runId:purchaseRun.runId});await refreshPurchase();});

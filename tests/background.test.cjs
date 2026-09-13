@@ -4,14 +4,14 @@ function harness(initial={}){
  let listener,onAlarm,onStartup,onInstalled,onClick,now=Date.now(),failNotification=false,failAlarm=false;
  class Clock extends Date {constructor(...args){super(...(args.length?args:[now]));}static now(){return now;}}
  const chrome={
-  runtime:{getURL:p=>'chrome-extension://test/'+p,getManifest:()=>({version:'0.3.0'}),onMessage:{addListener:f=>listener=f},onStartup:{addListener:f=>onStartup=f},onInstalled:{addListener:f=>onInstalled=f}},
-  storage:{local:{get:async keys=>Object.fromEntries((Array.isArray(keys)?keys:[keys]).filter(k=>data[k]!==undefined).map(k=>[k,structuredClone(data[k])])),set:async v=>Object.assign(data,structuredClone(v))}},
+  runtime:{getURL:p=>'chrome-extension://test/'+p,getManifest:()=>({version:'0.4.0'}),onMessage:{addListener:f=>listener=f},onStartup:{addListener:f=>onStartup=f},onInstalled:{addListener:f=>onInstalled=f}},
+  storage:{local:{setAccessLevel:async()=>{},get:async keys=>Object.fromEntries((Array.isArray(keys)?keys:[keys]).filter(k=>data[k]!==undefined).map(k=>[k,structuredClone(data[k])])),set:async v=>Object.assign(data,structuredClone(v))}},
   tabs:{query:async()=>[],create:async o=>opened.push(o)},
   alarms:{create:async(id,o)=>{if(failAlarm)throw Error('failed');alarms.set(id,o);},get:async id=>alarms.get(id),getAll:async()=>[...alarms.values()],clear:async id=>alarms.delete(id),onAlarm:{addListener:f=>onAlarm=f}},
   notifications:{create:async(id,o)=>{if(failNotification)throw Error('denied');notifications.push({id,...o});},getPermissionLevel:async()=>failNotification?'denied':'granted',onClicked:{addListener:f=>onClick=f}},
   action:{setBadgeText:async()=>{}},scripting:{executeScript:async()=>{}}
  };
- vm.runInNewContext(fs.readFileSync('extension/background.js','utf8'),{chrome,TicketCatalog:C,importScripts:()=>{},URL,crypto,Date:Clock});
+ vm.runInNewContext(fs.readFileSync('extension/background.js','utf8'),{chrome,TicketCatalog:C,TicketPurchase:require('../extension/purchase.js'),TicketPurchaseAdapters:[],importScripts:()=>{},URL,crypto,Date:Clock});
  const send=(msg,sender={url:'chrome-extension://test/ui/dashboard.html'})=>new Promise(resolve=>{const asyncResult=listener(msg,sender,resolve);if(!asyncResult)resolve({ignored:true});});
  return {data,alarms,notifications,opened,send,fire:id=>onAlarm({name:id}),startup:()=>onStartup(),installed:()=>onInstalled(),click:id=>onClick(id),time:t=>now=t,failNotifications:v=>failNotification=v,failAlarms:v=>failAlarm=v};
 }
@@ -30,3 +30,7 @@ test('overdue reminders recover once and interrupted notification remains unknow
 test('alarm creation failure does not report success and can be saved again',async()=>{const h=harness();h.failAlarms(true);assert.equal((await h.send({type:'SAVE_PLAN',plan})).ok,false);assert.equal(h.data.tasks[0].state,'schedule-failed');h.failAlarms(false);assert.equal((await h.send({type:'SAVE_PLAN',plan})).ok,true);assert.equal(h.alarms.size,1);});
 test('diagnostics reveal counts and capabilities without personal plan data',async()=>{const h=harness({tasks:[stored()],catalog:[{title:'private-title',url:plan.url,opensAt:123}]});const {ok,report}=await h.send({type:'DIAGNOSTICS'});assert.equal(ok,true);assert.equal(report.taskStates.scheduled,1);assert.equal(report.realCheckoutSupported,false);for(const secret of ['private-title',plan.title,plan.url,'maxTotal','choices'])assert.equal(JSON.stringify(report).includes(secret),false);});
 test('notification click never opens an injected offsite URL',async()=>{const h=harness({tasks:[{...stored('notified'),url:'https://evil.test'}]});await h.click('saved');assert.equal(h.opened.length,0);});
+
+test('purchase capabilities report no unsupported real checkout and refuse start',async()=>{const h=harness();const r=await h.send({type:'PURCHASE_STATUS'});assert.equal(r.ok,true);assert.equal(r.adapters.length,0);assert.equal(r.run,null);assert.equal((await h.send({type:'PURCHASE_START',plan:{},tabId:1,adapterId:'damai'})).ok,false);assert.equal(h.data.purchaseLedger,undefined);});
+test('ordinary page messages cannot control purchasing',async()=>{const h=harness();const r=await h.send({type:'PURCHASE_START',plan:{},tabId:1,adapterId:'damai'},{url:plan.url,tab:{url:plan.url}});assert.equal(r.ignored,true);assert.equal(h.data.purchaseLedger,undefined);});
+test('corrupt purchase records block purchase commands without deleting evidence',async()=>{const h=harness({purchaseLedger:{schema:99,run:{state:'SUBMITTING'}}});assert.equal((await h.send({type:'PURCHASE_STATUS'})).ok,false);assert.equal(h.data.purchaseLedger.schema,99);});
